@@ -17,7 +17,7 @@ export function SocketProvider({ children }) {
       return;
     }
     const token = localStorage.getItem('dialect_token');
-    const s = io(import.meta.env.VITE_SERVER_URL || 'http://localhost:5000', {
+    const s = io(import.meta.env.VITE_SERVER_URL || 'http://https://dialect.up.railway.app0', {
       auth: { token },
       transports: ['websocket'],
       reconnectionAttempts: 8,

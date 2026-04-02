@@ -213,7 +213,7 @@ Register two accounts in two browser tabs to test matchmaking.
 
 | Variable | Default | Description |
 |---|---|---|
-| `VITE_SERVER_URL` | `http://localhost:5000` | Backend URL for Socket.io |
+| `VITE_SERVER_URL` | `http://https://dialect.up.railway.app0` | Backend URL for Socket.io |
 
 ---
 
