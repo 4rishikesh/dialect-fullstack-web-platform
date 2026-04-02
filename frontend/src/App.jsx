@@ -1,35 +1,37 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { SocketProvider } from './context/SocketContext';
+import { RequireAuth, RedirectIfAuth } from './components/Guards';
+import AuthPage from './pages/AuthPage';
+import Dashboard from './pages/Dashboard';
+import Lobby from './pages/Lobby';
+import DebateRoom from './pages/DebateRoom';
+import Leaderboard from './pages/Leaderboard';
+import History from './pages/History';
+import ReportPage from './pages/ReportPage';
+import AdminPanel from './pages/AdminPanel';
+import './styles/globals.css';
 
-function App() {
-  const [count, setCount] = useState(0)
-
+export default function App() {
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <BrowserRouter>
+      <AuthProvider>
+        <SocketProvider>
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/login" element={<RedirectIfAuth><AuthPage mode="login" /></RedirectIfAuth>} />
+            <Route path="/register" element={<RedirectIfAuth><AuthPage mode="register" /></RedirectIfAuth>} />
+            <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
+            <Route path="/lobby" element={<RequireAuth><Lobby /></RequireAuth>} />
+            <Route path="/debate/:roomId" element={<RequireAuth><DebateRoom /></RequireAuth>} />
+            <Route path="/leaderboard" element={<RequireAuth><Leaderboard /></RequireAuth>} />
+            <Route path="/history" element={<RequireAuth><History /></RequireAuth>} />
+            <Route path="/report/:roomId" element={<RequireAuth><ReportPage /></RequireAuth>} />
+            <Route path="/admin" element={<RequireAuth><AdminPanel /></RequireAuth>} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </SocketProvider>
+      </AuthProvider>
+    </BrowserRouter>
+  );
 }
-
-export default App
