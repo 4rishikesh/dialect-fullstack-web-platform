@@ -1,6 +1,13 @@
-import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
-import { io } from 'socket.io-client';
-import { useAuth } from './AuthContext';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
+import { io } from "socket.io-client";
+import { useAuth } from "./AuthContext";
 
 const SocketContext = createContext(null);
 
@@ -12,24 +19,40 @@ export function SocketProvider({ children }) {
 
   useEffect(() => {
     if (!user) {
-      if (socketRef.current) { socketRef.current.disconnect(); socketRef.current = null; setSocket(null); }
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+        setSocket(null);
+      }
       setConnected(false);
       return;
     }
-    const token = localStorage.getItem('dialect_token');
-    const s = io(import.meta.env.VITE_SERVER_URL || 'http://https://dialect.up.railway.app0', {
+    const token = localStorage.getItem("dialect_token");
+    const s = io("https://dialect.up.railway.app", {
       auth: { token },
-      transports: ['websocket'],
+      transports: ["websocket"],
       reconnectionAttempts: 8,
       reconnectionDelay: 1500,
       timeout: 10000,
     });
-    s.on('connect', () => { setConnected(true); });
-    s.on('disconnect', () => { setConnected(false); });
-    s.on('connect_error', (err) => console.error('[Socket] Error:', err.message));
+    s.on("connect", () => {
+      setConnected(true);
+    });
+    s.on("disconnect", () => {
+      setConnected(false);
+    });
+    s.on("connect_error", (err) =>
+      console.error("[Socket] Error:", err.message),
+    );
     socketRef.current = s;
     setSocket(s);
-    return () => { s.removeAllListeners(); s.disconnect(); socketRef.current = null; setSocket(null); setConnected(false); };
+    return () => {
+      s.removeAllListeners();
+      s.disconnect();
+      socketRef.current = null;
+      setSocket(null);
+      setConnected(false);
+    };
   }, [user]);
 
   const emit = useCallback((event, data) => {
