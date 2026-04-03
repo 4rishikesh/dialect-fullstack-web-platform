@@ -127,7 +127,8 @@ export default function DebateRoom() {
       let c = 3;
       setCountdown(c); setPhase('countdown');
       const iv = setInterval(() => { c--; setCountdown(c); if (c <= 0) { clearInterval(iv); setPhase('active'); } }, 1000);
-      if (data.mode === 'voice' || data.mode === 'video') setTimeout(() => startCall(), 3500);
+      if (data.mode === 'voice' || data.mode === 'video') console.log("Starting wertc call");
+      startCall();
     });
 
     socket.on('match:found', ({ side: s }) => setSide(s));
