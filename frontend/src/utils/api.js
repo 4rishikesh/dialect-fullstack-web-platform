@@ -1,6 +1,10 @@
 import axios from 'axios';
+import { API_URL } from '../config';
 
-const api = axios.create({ baseURL: '/api', withCredentials: true });
+const api = axios.create({
+  baseURL: `${API_URL}/api`,
+  withCredentials: true
+});
 
 api.interceptors.request.use(cfg => {
   const token = localStorage.getItem('dialect_token');
