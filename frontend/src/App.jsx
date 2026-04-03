@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
-import { ToastProvider } from './context/ToastContext';
+//import { ToastProvider } from './context/ToastContext';
 import { RequireAuth, RedirectIfAuth } from './components/Guards';
 import AuthPage      from './pages/AuthPage';
 import Dashboard     from './pages/Dashboard';
@@ -20,7 +20,6 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <SocketProvider>
-          <ToastProvider>
             <Routes>
               <Route path="/"               element={<Navigate to="/dashboard" replace />} />
               <Route path="/login"          element={<RedirectIfAuth><AuthPage mode="login" /></RedirectIfAuth>} />
@@ -35,7 +34,6 @@ export default function App() {
               <Route path="/admin"          element={<RequireAuth><AdminPanel /></RequireAuth>} />
               <Route path="*"               element={<NotFound />} />
             </Routes>
-          </ToastProvider>
         </SocketProvider>
       </AuthProvider>
     </BrowserRouter>
