@@ -7,24 +7,33 @@ const ICE_SERVERS = {
   ]
 };
 
-export function useWebRTC({ socket, roomId, mode, isInitiator, localVideoRef, remoteVideoRef, localAudioRef, remoteAudioRef }) {
+export function useWebRTC({
+  socket,
+  roomId,
+  mode,
+  isInitiator,
+  localVideoRef,
+  remoteVideoRef,
+  localAudioRef,
+  remoteAudioRef
+}) {
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
 
-  // ✅ GET MEDIA (FORCE CAMERA/MIC)
+  // 🎥 GET MEDIA
   const getMedia = useCallback(async () => {
     try {
-      const constraints = mode === 'video'
-        ? { audio: true, video: true }
-        : { audio: true, video: false };
+      const constraints =
+        mode === 'video'
+          ? { audio: true, video: true }
+          : { audio: true, video: false };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
-      console.log("🎥 MEDIA STREAM STARTED", stream);
+      console.log("🎥 MEDIA STREAM STARTED");
 
       localStreamRef.current = stream;
 
-      // attach to UI
       if (mode === 'video' && localVideoRef?.current) {
         localVideoRef.current.srcObject = stream;
       }
@@ -36,45 +45,68 @@ export function useWebRTC({ socket, roomId, mode, isInitiator, localVideoRef, re
       return stream;
     } catch (err) {
       console.error('[WebRTC] Media error:', err);
-      alert("Camera/Mic permission denied ❌");
+      alert("Allow camera & mic ❌");
       throw err;
     }
   }, [mode, localVideoRef, localAudioRef]);
 
-  const createPeerConnection = useCallback((stream) => {
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+  // 🔗 CREATE PEER CONNECTION
+  const createPeerConnection = useCallback(
+    (stream) => {
+      const pc = new RTCPeerConnection(ICE_SERVERS);
 
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate && socket) {
-        socket.emit('webrtc:ice_candidate', { roomId, candidate });
-      }
-    };
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate) {
+          socket.emit('webrtc:ice_candidate', { roomId, candidate });
+        }
+      };
 
-    pc.ontrack = (event) => {
-      const [remoteStream] = event.streams;
+      // ✅ FIXED AUDIO + VIDEO PLAYBACK
+      pc.ontrack = (event) => {
+        const [remoteStream] = event.streams;
 
-      console.log("📡 RECEIVED REMOTE STREAM");
+        console.log("📡 RECEIVED REMOTE STREAM");
 
-      if (mode === 'video' && remoteVideoRef?.current) {
-        remoteVideoRef.current.srcObject = remoteStream;
-      }
+        // 🎥 VIDEO MODE (includes audio)
+        if (mode === 'video' && remoteVideoRef?.current) {
+          const video = remoteVideoRef.current;
 
-      if (mode === 'voice' && remoteAudioRef?.current) {
-        remoteAudioRef.current.srcObject = remoteStream;
-      }
-    };
+          video.srcObject = remoteStream;
+          video.muted = false;
+          video.volume = 1;
 
-    pc.onconnectionstatechange = () => {
-      console.log('[WebRTC] Connection:', pc.connectionState);
-    };
+          video.play().catch(() => {
+            console.log("Video autoplay blocked");
+          });
+        }
 
-    pcRef.current = pc;
-    return pc;
-  }, [socket, roomId, mode, remoteVideoRef, remoteAudioRef]);
+        // 🎤 VOICE MODE
+        if (mode === 'voice' && remoteAudioRef?.current) {
+          const audio = remoteAudioRef.current;
 
-  // ✅ START CALL (FIXED FLOW)
+          audio.srcObject = remoteStream;
+          audio.muted = false;
+          audio.volume = 1;
+
+          audio.play().catch(() => {
+            console.log("Audio autoplay blocked");
+          });
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        console.log("🔗 Connection:", pc.connectionState);
+      };
+
+      pcRef.current = pc;
+      return pc;
+    },
+    [socket, roomId, mode, remoteVideoRef, remoteAudioRef]
+  );
+
+  // 🚀 START CALL
   const startCall = useCallback(async () => {
     if (!socket) return;
 
@@ -91,12 +123,26 @@ export function useWebRTC({ socket, roomId, mode, isInitiator, localVideoRef, re
 
       socket.emit('webrtc:offer', { roomId, offer });
     } else {
-      console.log("👂 WAITING FOR OFFER");
+      console.log("👂 READY FOR PEER");
+
+      socket.emit('webrtc:ready', { roomId });
     }
   }, [socket, roomId, isInitiator, getMedia, createPeerConnection]);
 
+  // 📡 SOCKET EVENTS
   useEffect(() => {
     if (!socket || (mode !== 'voice' && mode !== 'video')) return;
+
+    const handlePeerReady = async () => {
+      console.log("👂 PEER READY");
+
+      if (isInitiator) return;
+
+      if (!pcRef.current) {
+        const stream = await getMedia();
+        createPeerConnection(stream);
+      }
+    };
 
     const handleOffer = async ({ offer }) => {
       console.log("📥 RECEIVED OFFER");
@@ -130,17 +176,20 @@ export function useWebRTC({ socket, roomId, mode, isInitiator, localVideoRef, re
       } catch {}
     };
 
+    socket.on('webrtc:peer_ready', handlePeerReady);
     socket.on('webrtc:offer', handleOffer);
     socket.on('webrtc:answer', handleAnswer);
     socket.on('webrtc:ice_candidate', handleIce);
 
     return () => {
+      socket.off('webrtc:peer_ready', handlePeerReady);
       socket.off('webrtc:offer', handleOffer);
       socket.off('webrtc:answer', handleAnswer);
       socket.off('webrtc:ice_candidate', handleIce);
     };
-  }, [socket, roomId, mode, getMedia, createPeerConnection]);
+  }, [socket, roomId, mode, isInitiator, getMedia, createPeerConnection]);
 
+  // 🧹 CLEANUP
   const cleanup = useCallback(() => {
     if (pcRef.current) {
       pcRef.current.close();
@@ -148,21 +197,21 @@ export function useWebRTC({ socket, roomId, mode, isInitiator, localVideoRef, re
     }
 
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(t => t.stop());
+      localStreamRef.current.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
     }
   }, []);
 
+  // 🔇 MUTE
   const toggleMute = useCallback(() => {
     if (!localStreamRef.current) return;
-    localStreamRef.current.getAudioTracks().forEach(t => t.enabled = !t.enabled);
-    return localStreamRef.current.getAudioTracks()[0]?.enabled;
+    localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = !t.enabled));
   }, []);
 
+  // 🎥 VIDEO TOGGLE
   const toggleVideo = useCallback(() => {
     if (!localStreamRef.current) return;
-    localStreamRef.current.getVideoTracks().forEach(t => t.enabled = !t.enabled);
-    return localStreamRef.current.getVideoTracks()[0]?.enabled;
+    localStreamRef.current.getVideoTracks().forEach((t) => (t.enabled = !t.enabled));
   }, []);
 
   return { startCall, cleanup, toggleMute, toggleVideo };
