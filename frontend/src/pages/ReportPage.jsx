@@ -1,31 +1,50 @@
-import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import api from '../utils/api';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
+import api from '../utils/api';
+import { API_URL } from '../config';
 
 function ScoreRing({ value, label, color = 'var(--accent)' }) {
-  const r = 38, c = 2 * Math.PI * r;
-  const offset = c - (value / 100) * c;
+  const radius = 38;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (value / 100) * circumference;
+
   return (
     <div style={{ textAlign: 'center' }}>
       <svg width={96} height={96} viewBox="0 0 96 96">
-        <circle cx={48} cy={48} r={r} fill="none" stroke="var(--border)" strokeWidth={6} />
-        <circle cx={48} cy={48} r={r} fill="none" stroke={color} strokeWidth={6}
-          strokeDasharray={c} strokeDashoffset={offset}
-          strokeLinecap="round" transform="rotate(-90 48 48)"
-          style={{ transition: 'stroke-dashoffset 1s ease' }} />
-        <text x={48} y={48} textAnchor="middle" dominantBaseline="central"
-          style={{ fill: 'var(--text)', fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700 }}>{value}</text>
+        <circle cx={48} cy={48} r={radius} fill="none" stroke="var(--border)" strokeWidth={6} />
+        <circle
+          cx={48}
+          cy={48}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={6}
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          transform="rotate(-90 48 48)"
+        />
+        <text x={48} y={48} textAnchor="middle" dominantBaseline="central" style={{ fill: 'var(--text)', fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700 }}>
+          {value}
+        </text>
       </svg>
       <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>{label}</div>
     </div>
   );
 }
 
-function SentimentChip({ sentiment }) {
-  const map = { positive: ['badge-green', '↑'], 'slightly positive': ['badge-blue', '↗'], neutral: ['badge-amber', '→'], 'slightly negative': ['badge-amber', '↘'], negative: ['badge-red', '↓'] };
-  const [cls, icon] = map[sentiment] || ['badge-blue', '—'];
-  return <span className={`badge ${cls}`}>{icon} {sentiment}</span>;
+function SectionCard({ title, items, emptyText = 'Nothing captured yet.' }) {
+  return (
+    <div className="card">
+      <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>{title}</div>
+      {items?.length ? items.map((item, index) => (
+        <div key={`${title}-${index}`} style={{ padding: '10px 0', borderBottom: index === items.length - 1 ? 'none' : '1px solid var(--border)', color: 'var(--text2)' }}>
+          {item}
+        </div>
+      )) : <div style={{ color: 'var(--muted)' }}>{emptyText}</div>}
+    </div>
+  );
 }
 
 export default function ReportPage() {
@@ -34,151 +53,305 @@ export default function ReportPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState('');
+  const [selectedInsight, setSelectedInsight] = useState(null);
 
-  useEffect(() => {
-    api.get(`/debate/report/${roomId}`)
-      .then(r => setData(r.data))
-      .catch(err => setError(err.response?.data?.message || 'Report not found'))
-      .finally(() => setLoading(false));
+  const fetchReport = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    try {
+      const response = await api.get(`/debate/report/${roomId}`);
+      setData(response.data);
+      setError('');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Report not found');
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }, [roomId]);
 
-  if (loading) return (
-    <div className="page"><Navbar />
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div className="spin" style={{ width: 36, height: 36, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%' }} />
+  useEffect(() => {
+    fetchReport();
+  }, [fetchReport]);
+
+  useEffect(() => {
+    if (!data || data.report || data.aiStatus !== 'pending') return undefined;
+
+    const interval = setInterval(() => {
+      fetchReport({ silent: true });
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [data, fetchReport]);
+
+  const report = data?.report;
+  const side = data?.side;
+  const session = data?.session;
+  const aiStatus = data?.aiStatus;
+  const aiError = data?.aiError;
+  const isA = side === 'A';
+
+  const myWordCloud = useMemo(() => (isA ? report?.wordCloudA : report?.wordCloudB) || [], [isA, report]);
+  const myInsights = useMemo(() => (isA ? report?.wordInsightsA : report?.wordInsightsB) || [], [isA, report]);
+  const myTips = useMemo(() => (isA ? report?.improvementTipsA : report?.improvementTipsB) || [], [isA, report]);
+  const myStrengths = useMemo(() => (isA ? report?.strengthsA : report?.strengthsB) || [], [isA, report]);
+  const myWeakPoints = useMemo(() => (isA ? report?.weakPointsA : report?.weakPointsB) || [], [isA, report]);
+  const myActionPlan = useMemo(() => (isA ? report?.actionPlanA : report?.actionPlanB) || [], [isA, report]);
+  const myLex = isA ? report?.lexicalDiversityA : report?.lexicalDiversityB;
+  const myVocab = isA ? report?.vocabScoreA : report?.vocabScoreB;
+  const mySentiment = isA ? report?.sentimentA : report?.sentimentB;
+  const mySummary = isA ? report?.summaryA : report?.summaryB;
+  const mySpeakingShare = isA ? report?.speakingShareA : report?.speakingShareB;
+  const myEloChange = isA ? session?.eloChangeA : session?.eloChangeB;
+  const myArgumentQuality = isA ? report?.argumentQualityA : report?.argumentQualityB;
+  const myRebuttalQuality = isA ? report?.rebuttalQualityA : report?.rebuttalQualityB;
+  const myClarity = isA ? report?.clarityA : report?.clarityB;
+  const myPersuasiveness = isA ? report?.persuasivenessA : report?.persuasivenessB;
+  const myEvidenceUse = isA ? report?.evidenceUseA : report?.evidenceUseB;
+  const myCoaching = isA ? report?.coachingA : report?.coachingB;
+  const myArgumentFeedback = isA ? report?.argumentFeedbackA : report?.argumentFeedbackB;
+  const myRebuttalFeedback = isA ? report?.rebuttalFeedbackA : report?.rebuttalFeedbackB;
+  const myClarityFeedback = isA ? report?.clarityFeedbackA : report?.clarityFeedbackB;
+  const myPersuasivenessFeedback = isA ? report?.persuasivenessFeedbackA : report?.persuasivenessFeedbackB;
+  const myComposite = isA ? report?.compositeScoreA : report?.compositeScoreB;
+
+  const copyShareLink = async () => {
+    try {
+      const response = await api.post(`/debate/report/${roomId}/share`);
+      const link = `${API_URL}/api/debate/report/share/${response.data.shareToken}`;
+      await navigator.clipboard.writeText(link);
+      setCopied('Public report link copied to clipboard.');
+    } catch {
+      setCopied('Could not generate a share link right now.');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="page">
+        <Navbar />
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="spin" style={{ width: 36, height: 36, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%' }} />
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
 
-  if (error) return (
-    <div className="page"><Navbar />
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
-        <div style={{ fontSize: 13, color: 'var(--red)' }}>{error}</div>
-        <button className="btn btn-ghost" onClick={() => navigate('/dashboard')}>Back to Dashboard</button>
+  if (error) {
+    return (
+      <div className="page">
+        <Navbar />
+        <div className="container" style={{ padding: '32px 24px' }}>
+          <div className="card" style={{ color: 'var(--red)' }}>{error}</div>
+        </div>
       </div>
-    </div>
-  );
-
-  const { report, side, session } = data;
-  const myLex = side === 'A' ? report?.lexicalDiversityA : report?.lexicalDiversityB;
-  const myVocab = side === 'A' ? report?.vocabScoreA : report?.vocabScoreB;
-  const mySentiment = side === 'A' ? report?.sentimentA : report?.sentimentB;
-  const myWeak = side === 'A' ? report?.weakWordsA : report?.weakWordsB;
-  const mySuggestions = side === 'A' ? report?.suggestionsA : report?.suggestionsB;
-  const mySummary = side === 'A' ? report?.summaryA : report?.summaryB;
-  const myEloChange = side === 'A' ? session?.eloChangeA : session?.eloChangeB;
-
-  const won = session?.winner === side;
-  const draw = session?.winner === 'draw';
+    );
+  }
 
   return (
     <div className="page">
       <Navbar />
-      <div className="container" style={{ padding: '32px 24px', flex: 1, maxWidth: 800 }}>
-
-        {/* Header */}
+      <div className="container" style={{ padding: '32px 24px', flex: 1, maxWidth: 1080 }}>
         <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', gap: 16, justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div>
-            <div className="fade-in">
-              <div style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>AI Performance Report</div>
-              <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 800, marginBottom: 4 }}>{session?.topic}</h1>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span className="badge badge-blue">{session?.mode}</span>
-                <span className={`badge ${won ? 'badge-green' : draw ? 'badge-amber' : 'badge-red'}`}>
-                  {won ? '🏆 Won' : draw ? '🤝 Draw' : '💭 Lost'}
-                </span>
-                {myEloChange != null && (
-                  <span className={`badge ${myEloChange >= 0 ? 'badge-green' : 'badge-red'}`}>
-                    {myEloChange >= 0 ? '+' : ''}{myEloChange} ELO
-                  </span>
-                )}
-              </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>AI Performance Report</div>
+            <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 800, marginBottom: 6 }}>{session?.topic}</h1>
+            <div className="button-row">
+              <span className="badge badge-blue">{session?.mode}</span>
+              <span className="badge badge-blue">{session?.language}</span>
+              {session?.matchType === 'human-vs-ai' ? <span className="badge badge-amber">AI Practice</span> : null}
+              {!session?.isRated ? <span className="badge badge-amber">Unrated</span> : null}
+              <span className={`badge ${session?.winner === side ? 'badge-green' : session?.winner === 'draw' ? 'badge-amber' : 'badge-red'}`}>
+                {session?.winner === side ? 'Won' : session?.winner === 'draw' ? 'Draw' : 'Lost'}
+              </span>
+              {session?.isRated ? (
+                <span className={`badge ${myEloChange >= 0 ? 'badge-green' : 'badge-red'}`}>{myEloChange >= 0 ? '+' : ''}{myEloChange} ELO</span>
+              ) : null}
+              <span className="badge badge-blue">{report?.provider || 'local-nlp'}</span>
             </div>
           </div>
-          <button className="btn btn-ghost" onClick={() => navigate('/lobby')}>↩ New Debate</button>
+          <div className="button-row">
+            <button className="btn btn-ghost" onClick={copyShareLink}>Copy Share Link</button>
+            <button className="btn btn-primary" onClick={() => navigate(session?.matchType === 'human-vs-ai' ? '/lobby?opponent=ai' : '/lobby')}>
+              New Debate
+            </button>
+          </div>
         </div>
+
+        {copied ? (
+          <div style={{ marginBottom: 16, padding: '10px 14px', background: 'var(--green-dim)', border: '1px solid #2ecc8730', borderRadius: 6, color: 'var(--green)', fontSize: 13 }}>
+            {copied}
+          </div>
+        ) : null}
+
+        {report?.fallbackUsed || aiError ? (
+          <div style={{ marginBottom: 16, padding: '10px 14px', background: 'var(--amber-dim)', border: '1px solid #d4912a30', borderRadius: 6, color: 'var(--amber)', fontSize: 13, lineHeight: 1.6 }}>
+            {report?.fallbackUsed
+              ? `Free local coaching was used${report.fallbackReason ? `: ${report.fallbackReason}` : '.'}`
+              : `Report warning: ${aiError}`}
+          </div>
+        ) : null}
 
         {!report ? (
           <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
-            <div style={{ color: 'var(--text2)', marginBottom: 8 }}>AI report is being generated...</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>This may take up to a minute for voice/video debates.</div>
+            <div style={{ color: 'var(--text2)', marginBottom: 8 }}>
+              {aiStatus === 'failed'
+                ? 'The richer AI report could not be completed.'
+                : aiStatus === 'ready'
+                  ? 'No saved transcript was available for a full content report.'
+                  : 'AI report is still being generated...'}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {aiStatus === 'pending'
+                ? 'This page refreshes automatically while the report finishes.'
+                : 'For voice and video debates, report quality depends on whether a transcript was captured.'}
+            </div>
+            <div className="button-row" style={{ justifyContent: 'center', marginTop: 16 }}>
+              <button className="btn btn-ghost" onClick={() => fetchReport()}>
+                Refresh Now
+              </button>
+            </div>
           </div>
         ) : (
-          <div className="fade-in">
-
-            {/* Score rings */}
+          <>
             <div className="card" style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20 }}>Your Scores</div>
-              <div style={{ display: 'flex', gap: 32, justifyContent: 'center', flexWrap: 'wrap' }}>
-                <ScoreRing value={myLex ?? 0} label="Lexical Diversity" color="var(--accent)" />
-                <ScoreRing value={Math.min(100, myVocab ?? 0)} label="Vocabulary Score" color="var(--green)" />
+              <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20 }}>Your Score Snapshot</div>
+              <div style={{ display: 'flex', gap: 24, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <ScoreRing value={myComposite ?? 0} label="Composite" color="var(--accent)" />
+                <ScoreRing value={myArgumentQuality ?? 0} label="Arguments" color="var(--green)" />
+                <ScoreRing value={myRebuttalQuality ?? 0} label="Rebuttals" color="var(--amber)" />
+                <ScoreRing value={myClarity ?? 0} label="Clarity" color="var(--accent2)" />
+                <ScoreRing value={myPersuasiveness ?? 0} label="Persuasion" color="var(--green)" />
+                <ScoreRing value={myEvidenceUse ?? 0} label="Evidence" color="var(--amber)" />
               </div>
             </div>
 
-            {/* Summary */}
-            {mySummary && (
-              <div className="card" style={{ marginBottom: 20, borderLeft: '3px solid var(--accent)' }}>
-                <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Summary</div>
-                <p style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>{mySummary}</p>
-                <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, color: 'var(--text2)' }}>Tone:</span>
-                  <SentimentChip sentiment={mySentiment} />
+            <div className="button-row" style={{ alignItems: 'stretch' }}>
+              <div style={{ flex: 2, minWidth: 340 }}>
+                <div className="card" style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Summary</div>
+                  <p style={{ color: 'var(--text)', lineHeight: 1.7, marginBottom: 12 }}>{mySummary}</p>
+                  <div style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 8 }}>Tone: <strong style={{ color: 'var(--text)' }}>{mySentiment}</strong></div>
+                  {myCoaching ? <div style={{ color: 'var(--text2)', fontSize: 13, lineHeight: 1.7 }}>Coach note: {myCoaching}</div> : null}
+                </div>
+
+                <div className="card" style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Debate Verdict</div>
+                  <div style={{ color: 'var(--text)', lineHeight: 1.7, marginBottom: 12 }}>{report.overallSummary || report.verdictReason}</div>
+                  <div style={{ color: 'var(--text2)', fontSize: 13, lineHeight: 1.7 }}>{report.verdictReason}</div>
+                </div>
+
+                <SectionCard title="Debate Highlights" items={report.debateHighlights || []} emptyText="Highlights are still being prepared." />
+
+                <div className="button-row" style={{ alignItems: 'stretch', marginTop: 20 }}>
+                  <div style={{ flex: 1, minWidth: 260 }}>
+                    <SectionCard title="Strengths" items={myStrengths} emptyText="No strengths captured yet." />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 260 }}>
+                    <SectionCard title="Improvement Tips" items={myTips} emptyText="No improvement tips available yet." />
+                  </div>
+                </div>
+
+                <div className="button-row" style={{ alignItems: 'stretch', marginTop: 20 }}>
+                  <div style={{ flex: 1, minWidth: 260 }}>
+                    <SectionCard title="Weak Points" items={myWeakPoints} emptyText="No weak points were flagged." />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 260 }}>
+                    <SectionCard title="Action Plan" items={myActionPlan} emptyText="No action plan available yet." />
+                  </div>
+                </div>
+
+                <div className="card" style={{ marginTop: 20 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Coach Breakdown</div>
+                  <div style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Argument Quality</div>
+                    <div style={{ color: 'var(--text2)', lineHeight: 1.6 }}>{myArgumentFeedback || 'No detailed argument feedback yet.'}</div>
+                  </div>
+                  <div style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Rebuttal Quality</div>
+                    <div style={{ color: 'var(--text2)', lineHeight: 1.6 }}>{myRebuttalFeedback || 'No detailed rebuttal feedback yet.'}</div>
+                  </div>
+                  <div style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Clarity</div>
+                    <div style={{ color: 'var(--text2)', lineHeight: 1.6 }}>{myClarityFeedback || 'No clarity feedback yet.'}</div>
+                  </div>
+                  <div style={{ padding: '10px 0' }}>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Persuasiveness</div>
+                    <div style={{ color: 'var(--text2)', lineHeight: 1.6 }}>{myPersuasivenessFeedback || 'No persuasiveness feedback yet.'}</div>
+                  </div>
                 </div>
               </div>
-            )}
 
-            {/* Weak words + suggestions */}
-            {myWeak?.length > 0 && (
-              <div className="card" style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>Vocabulary Coaching</div>
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 12, color: 'var(--amber)', marginBottom: 8, fontWeight: 600 }}>⚠ Overused Words</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {myWeak.map(w => (
-                      <span key={w} style={{ padding: '4px 12px', background: 'var(--amber-dim)', border: '1px solid #d4912a30', borderRadius: 20, fontSize: 12, color: 'var(--amber)' }}>
-                        {w}
-                      </span>
+              <div style={{ flex: 1, minWidth: 300 }}>
+                <div className="card" style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Core Metrics</div>
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {[
+                      ['Lexical Diversity', myLex],
+                      ['Vocabulary Score', myVocab],
+                      ['Speaking Share', mySpeakingShare],
+                      ['Argument Quality', myArgumentQuality],
+                      ['Rebuttal Quality', myRebuttalQuality],
+                      ['Evidence Use', myEvidenceUse]
+                    ].map(([label, value]) => (
+                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'var(--surface2)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                        <span style={{ color: 'var(--text2)', fontSize: 13 }}>{label}</span>
+                        <strong>{value ?? 0}</strong>
+                      </div>
                     ))}
                   </div>
                 </div>
-                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-                  <div style={{ fontSize: 12, color: 'var(--green)', marginBottom: 8, fontWeight: 600 }}>💡 Suggestions</div>
-                  {mySuggestions?.map((s, i) => (
-                    <div key={i} style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 6, paddingLeft: 12, borderLeft: '2px solid var(--border2)' }}>
-                      {s}
+
+                <div className="card" style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Word Cloud</div>
+                  {myWordCloud.length ? (
+                    <div className="chip-group">
+                      {myWordCloud.map((entry) => (
+                        <button
+                          key={entry.word}
+                          type="button"
+                          className={`chip-button ${selectedInsight?.word === entry.word ? 'active' : ''}`}
+                          onClick={() => setSelectedInsight(myInsights.find((item) => item.word === entry.word) || null)}
+                        >
+                          {entry.word} ({entry.count})
+                        </button>
+                      ))}
                     </div>
-                  ))}
+                  ) : <div style={{ color: 'var(--muted)' }}>No vocabulary cloud available.</div>}
+                </div>
+
+                <div className="card" style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Word Insights</div>
+                  {myInsights.length ? myInsights.map((insight) => (
+                    <button
+                      key={insight.word}
+                      type="button"
+                      onClick={() => setSelectedInsight(insight)}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 0', border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', color: 'inherit' }}
+                    >
+                      <div style={{ fontWeight: 600 }}>{insight.word}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text2)' }}>{(insight.replacements || []).slice(0, 3).join(', ')}</div>
+                    </button>
+                  )) : <div style={{ color: 'var(--muted)' }}>No weak-word insights detected.</div>}
+                </div>
+
+                <div className="card">
+                  <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Insight Detail</div>
+                  {selectedInsight ? (
+                    <>
+                      <div style={{ fontWeight: 700, marginBottom: 8 }}>{selectedInsight.word}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>{selectedInsight.definition}</div>
+                      <div style={{ fontSize: 12, color: 'var(--green)', marginBottom: 8 }}>
+                        Better alternatives: {(selectedInsight.replacements || []).join(', ')}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text2)' }}>Example: {selectedInsight.example}</div>
+                    </>
+                  ) : (
+                    <div style={{ color: 'var(--muted)' }}>Select a word insight to see replacement ideas, a definition, and an example.</div>
+                  )}
                 </div>
               </div>
-            )}
-
-            {/* Comparison vs opponent */}
-            <div className="card" style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>Head-to-Head</div>
-              {[
-                { label: 'Lexical Diversity', a: report.lexicalDiversityA, b: report.lexicalDiversityB },
-                { label: 'Vocabulary Score', a: Math.min(100, report.vocabScoreA), b: Math.min(100, report.vocabScoreB) }
-              ].map(row => (
-                <div key={row.label} style={{ marginBottom: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>
-                    <span style={{ color: side === 'A' ? 'var(--accent)' : 'var(--text2)' }}>You ({row.a})</span>
-                    <span style={{ fontSize: 11 }}>{row.label}</span>
-                    <span style={{ color: side === 'B' ? 'var(--accent)' : 'var(--text2)' }}>Opp ({row.b})</span>
-                  </div>
-                  <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden', display: 'flex' }}>
-                    <div style={{ width: `${(row.a / (row.a + row.b + 0.01)) * 100}%`, background: 'var(--accent)', transition: 'width 1s ease' }} />
-                    <div style={{ flex: 1, background: 'var(--surface3)' }} />
-                  </div>
-                </div>
-              ))}
             </div>
-
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button className="btn btn-primary" onClick={() => navigate('/lobby')}>⚔ Debate Again</button>
-              <button className="btn btn-ghost" onClick={() => navigate('/dashboard')}>Dashboard</button>
-            </div>
-          </div>
+          </>
         )}
       </div>
     </div>

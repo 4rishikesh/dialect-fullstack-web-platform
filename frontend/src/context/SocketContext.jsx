@@ -1,13 +1,7 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-} from "react";
-import { io } from "socket.io-client";
-import { useAuth } from "./AuthContext";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { io } from 'socket.io-client';
+import { useAuth } from './AuthContext';
+import { API_URL, getStoredToken } from '../config';
 
 const SocketContext = createContext(null);
 
@@ -22,33 +16,31 @@ export function SocketProvider({ children }) {
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
-        setSocket(null);
       }
+      setSocket(null);
       setConnected(false);
       return;
     }
-    const token = localStorage.getItem("dialect_token");
-    const s = io("https://dialect.up.railway.app", {
+
+    const token = getStoredToken();
+    const instance = io(API_URL, {
       auth: { token },
-      transports: ["websocket"],
+      transports: ['websocket'],
       reconnectionAttempts: 8,
       reconnectionDelay: 1500,
-      timeout: 10000,
+      timeout: 10000
     });
-    s.on("connect", () => {
-      setConnected(true);
-    });
-    s.on("disconnect", () => {
-      setConnected(false);
-    });
-    s.on("connect_error", (err) =>
-      console.error("[Socket] Error:", err.message),
-    );
-    socketRef.current = s;
-    setSocket(s);
+
+    instance.on('connect', () => setConnected(true));
+    instance.on('disconnect', () => setConnected(false));
+    instance.on('connect_error', (error) => console.error('[Socket] Error:', error.message));
+
+    socketRef.current = instance;
+    setSocket(instance);
+
     return () => {
-      s.removeAllListeners();
-      s.disconnect();
+      instance.removeAllListeners();
+      instance.disconnect();
       socketRef.current = null;
       setSocket(null);
       setConnected(false);

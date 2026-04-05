@@ -1,12 +1,14 @@
 {
   "name": "dialect-platform",
   "version": "1.0.0",
-  "description": "DIALECT — Intelligent Debate Matchmaking & Skill-Adaptive Platform",
+  "description": "DIALECT - Intelligent Debate Matchmaking and Skill-Adaptive Platform",
   "private": true,
   "scripts": {
     "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "build:frontend": "npm --prefix frontend run build",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
-    "start:backend": "cd backend && npm start"
+    "start:backend": "cd backend && npm start",
+    "demo": "npm --prefix frontend run build && npm --prefix backend start"
   }
 }

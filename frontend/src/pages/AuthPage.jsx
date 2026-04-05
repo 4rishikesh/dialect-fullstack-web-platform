@@ -1,126 +1,283 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
+const TOPIC_OPTIONS = [
+  'Technology & AI',
+  'Climate Change',
+  'Education Reform',
+  'Economic Policy',
+  'Ethics & Philosophy',
+  'Healthcare',
+  'General'
+];
+
+const FEATURE_CARDS = [
+  { icon: 'Ghost', label: 'Ghost Mode', desc: 'Debate anonymously when you want low-pressure practice.' },
+  { icon: 'ELO', label: 'Smart Matchmaking', desc: 'Get paired with opponents closer to your current level.' },
+  { icon: 'AI', label: 'AI Coaching', desc: 'Review clarity, vocabulary, and rebuttal quality after each room.' },
+  { icon: 'RTC', label: 'Voice and Video', desc: 'Switch between text, audio, and live camera debates.' }
+];
+
 export default function AuthPage({ mode = 'login' }) {
-  const { login, register } = useAuth();
+  const { login, register, verification, verifyEmail, resendVerification } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState(mode);
-  const [form, setForm] = useState({ username: '', email: '', password: '' });
+  const [form, setForm] = useState({
+    username: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    rememberMe: true,
+    preferredMode: 'text',
+    preferredLanguage: 'English',
+    preferredTopics: ['General'],
+    verificationCode: ''
+  });
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+  useEffect(() => {
+    if (verification?.code) {
+      setForm((current) => ({ ...current, verificationCode: verification.code }));
+      setInfo(`Demo verification code: ${verification.code}`);
+    }
+  }, [verification]);
 
-  const submit = async e => {
-    e.preventDefault();
-    setError(''); setLoading(true);
+  const setField = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+
+  const toggleTopic = (topic) => {
+    setForm((current) => {
+      const exists = current.preferredTopics.includes(topic);
+      const nextTopics = exists
+        ? current.preferredTopics.filter((item) => item !== topic)
+        : [...current.preferredTopics, topic];
+      return { ...current, preferredTopics: nextTopics.length ? nextTopics : ['General'] };
+    });
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setInfo('');
+    setLoading(true);
+
     try {
-      if (tab === 'login') await login(form.email, form.password);
-      else await register(form.username, form.email, form.password);
+      if (tab === 'login') {
+        await login(form.email, form.password, form.rememberMe);
+      } else {
+        if (form.password !== form.confirmPassword) throw new Error('Passwords do not match');
+        await register({
+          username: form.username,
+          email: form.email,
+          password: form.password,
+          preferredMode: form.preferredMode,
+          preferredLanguage: form.preferredLanguage,
+          preferredTopics: form.preferredTopics
+        }, form.rememberMe);
+      }
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.message || 'Something went wrong');
-    } finally { setLoading(false); }
+      setError(err.response?.data?.message || err.message || 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitVerification = async (event) => {
+    event.preventDefault();
+    setError('');
+    setInfo('');
+    try {
+      const email = verification?.email || form.email;
+      await verifyEmail(email, form.verificationCode);
+      setInfo('Email verified successfully.');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not verify email');
+    }
+  };
+
+  const refreshVerification = async () => {
+    setError('');
+    setInfo('');
+    try {
+      const email = verification?.email || form.email;
+      const response = await resendVerification(email);
+      setInfo(response.verificationCode ? `Demo verification code: ${response.verificationCode}` : response.message);
+      setForm((current) => ({ ...current, verificationCode: response.verificationCode || current.verificationCode }));
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not resend verification code');
+    }
   };
 
   return (
-    <div style={{
-      minHeight: '100vh', display: 'flex', flexDirection: 'column',
-      background: 'var(--bg)',
-      backgroundImage: 'radial-gradient(ellipse at 20% 50%, #1a2240 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, #1a1f30 0%, transparent 50%)'
-    }}>
-      {/* Hero strip */}
-      <div style={{ padding: '40px 0 0', textAlign: 'center' }}>
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 36, fontWeight: 800, letterSpacing: '0.1em', marginBottom: 8 }}>
-          DIAL<span style={{ color: 'var(--accent)' }}>ECT</span>
-        </div>
-        <p style={{ color: 'var(--text2)', fontSize: 14 }}>
-          Debate-based Intelligent Adaptive Learning & Evaluation Platform
-        </p>
-      </div>
+    <div className="auth-shell">
+      <div className="auth-grid">
+        <aside className="auth-aside">
+          <div className="auth-brand">
+            <div className="badge badge-blue" style={{ marginBottom: 18 }}>Debate platform</div>
+            <div className="auth-wordmark">
+              DIAL<span style={{ color: 'var(--accent)' }}>ECT</span>
+            </div>
+            <p className="auth-copy">
+              Debate-based Intelligent Adaptive Learning and Evaluation with a calmer layout, more breathing room, and a sharper path into each match.
+            </p>
+            <p className="auth-microcopy">
+              Build confidence in text rooms, move into voice or video when ready, and keep your identity flexible with Ghost Mode.
+            </p>
+          </div>
 
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
-        <div style={{ width: '100%', maxWidth: 400 }}>
+          <div className="auth-feature-grid">
+            {FEATURE_CARDS.map((item) => (
+              <div key={item.label} className="auth-feature-card">
+                <div className="auth-feature-kicker">{item.icon}</div>
+                <div className="auth-feature-title">{item.label}</div>
+                <div className="auth-feature-desc">{item.desc}</div>
+              </div>
+            ))}
+          </div>
+        </aside>
 
-          {/* Tab toggle */}
-          <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 4, marginBottom: 24 }}>
-            {['login', 'register'].map(t => (
-              <button key={t} onClick={() => { setTab(t); setError(''); }}
-                style={{
-                  flex: 1, padding: '8px', border: 'none', borderRadius: 6,
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
-                  background: tab === t ? 'var(--surface3)' : 'transparent',
-                  color: tab === t ? 'var(--text)' : 'var(--muted)',
-                  textTransform: 'capitalize'
-                }}>
-                {t === 'login' ? 'Sign In' : 'Create Account'}
+        <div className="auth-panel">
+          <div className="segmented-control" style={{ display: 'flex', width: '100%' }}>
+            {['login', 'register'].map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                onClick={() => { setTab(entry); setError(''); setInfo(''); }}
+                className={`segmented-button ${tab === entry ? 'active' : ''}`}
+                style={{ flex: 1, textTransform: 'capitalize' }}
+              >
+                {entry === 'login' ? 'Sign In' : 'Create Account'}
               </button>
             ))}
           </div>
 
-          <div className="card fade-in" style={{ padding: 32 }}>
+          <div className="card auth-card fade-in">
+            <div className="auth-heading">
+              <h1>{tab === 'login' ? 'Welcome back' : 'Create your account'}</h1>
+              <p>
+                {tab === 'login'
+                  ? 'Sign in and continue your next debate session.'
+                  : 'Pick your preferences now. You can change them later from your profile.'}
+              </p>
+            </div>
+
             <form onSubmit={submit}>
-              {tab === 'register' && (
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: 12, color: 'var(--text2)', marginBottom: 6, fontWeight: 500 }}>
-                    Username
-                  </label>
-                  <input className="input" type="text" placeholder="your_handle" value={form.username}
-                    onChange={set('username')} required minLength={3} maxLength={30} />
+              <div className="auth-fields">
+                {tab === 'register' && (
+                  <>
+                    <div className="field">
+                      <label>Username</label>
+                      <input className="input" type="text" placeholder="your_handle" value={form.username} onChange={setField('username')} required minLength={3} maxLength={30} />
+                    </div>
+
+                    <div className="auth-row">
+                      <div className="field">
+                        <label>Preferred Mode</label>
+                        <select className="input" value={form.preferredMode} onChange={setField('preferredMode')}>
+                          <option value="text">Text</option>
+                          <option value="voice">Voice</option>
+                          <option value="video">Video</option>
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label>Preferred Language</label>
+                        <input className="input" type="text" value={form.preferredLanguage} onChange={setField('preferredLanguage')} placeholder="English" />
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <label>Favourite Topics</label>
+                      <div className="chip-group">
+                        {TOPIC_OPTIONS.map((topic) => (
+                          <button
+                            key={topic}
+                            type="button"
+                            className={`chip-button ${form.preferredTopics.includes(topic) ? 'active' : ''}`}
+                            onClick={() => toggleTopic(topic)}
+                          >
+                            {topic}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div className="field">
+                  <label>{tab === 'login' ? 'Email or Username' : 'Email'}</label>
+                  <input
+                    className="input"
+                    type={tab === 'login' ? 'text' : 'email'}
+                    placeholder="you@example.com"
+                    value={form.email}
+                    onChange={setField('email')}
+                    required
+                  />
                 </div>
-              )}
 
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', fontSize: 12, color: 'var(--text2)', marginBottom: 6, fontWeight: 500 }}>
-                  Email
-                </label>
-                <input className="input" type="email" placeholder="you@example.com" value={form.email}
-                  onChange={set('email')} required />
+                <div className="field">
+                  <label>Password</label>
+                  <input className="input" type="password" placeholder="At least 8 chars + a number" value={form.password} onChange={setField('password')} required minLength={8} />
+                </div>
+
+                {tab === 'register' && (
+                  <div className="field">
+                    <label>Confirm Password</label>
+                    <input className="input" type="password" placeholder="Repeat password" value={form.confirmPassword} onChange={setField('confirmPassword')} required minLength={8} />
+                  </div>
+                )}
               </div>
 
-              <div style={{ marginBottom: 24 }}>
-                <label style={{ display: 'block', fontSize: 12, color: 'var(--text2)', marginBottom: 6, fontWeight: 500 }}>
-                  Password
-                </label>
-                <input className="input" type="password" placeholder="••••••••" value={form.password}
-                  onChange={set('password')} required minLength={6} />
-              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 18, marginBottom: 22, fontSize: 13, color: 'var(--text2)' }}>
+                <input
+                  type="checkbox"
+                  checked={form.rememberMe}
+                  onChange={(event) => setForm((current) => ({ ...current, rememberMe: event.target.checked }))}
+                  style={{ accentColor: 'var(--accent)' }}
+                />
+                Keep me signed in on this device
+              </label>
 
               {error && (
-                <div style={{ marginBottom: 16, padding: '10px 14px', background: 'var(--red-dim)', border: '1px solid #e05c5c30', borderRadius: 6, color: 'var(--red)', fontSize: 13 }}>
+                <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--red-dim)', border: '1px solid #e05c5c30', borderRadius: 12, color: 'var(--red)', fontSize: 13 }}>
                   {error}
                 </div>
               )}
 
-              <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={loading}>
+              {info && (
+                <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--green-dim)', border: '1px solid #2ecc8730', borderRadius: 12, color: 'var(--green)', fontSize: 13 }}>
+                  {info}
+                </div>
+              )}
+
+              <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
                 {loading ? (
                   <span className="spin" style={{ width: 16, height: 16, border: '2px solid #ffffff44', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block' }} />
                 ) : tab === 'login' ? 'Sign In' : 'Create Account'}
               </button>
             </form>
 
+            {verification && (
+              <form onSubmit={submitVerification} style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>
+                  Email verification is enabled for this environment.
+                </div>
+                <input className="input" type="text" placeholder="Verification code" value={form.verificationCode} onChange={setField('verificationCode')} style={{ marginBottom: 12 }} />
+                <div className="button-row">
+                  <button type="submit" className="btn btn-ghost">Verify Email</button>
+                  <button type="button" className="btn btn-ghost" onClick={refreshVerification}>Resend Code</button>
+                </div>
+              </form>
+            )}
+
             {tab === 'register' && (
-              <p style={{ marginTop: 16, fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
+              <p style={{ marginTop: 18, fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
                 New accounts start in <span style={{ color: 'var(--text2)' }}>Ghost Mode</span> with 1000 ELO
               </p>
             )}
-          </div>
-
-          {/* Feature bullets */}
-          <div style={{ marginTop: 32, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            {[
-              { icon: '👻', label: 'Ghost Mode', desc: 'Debate anonymously' },
-              { icon: '⚡', label: 'Elo Matchmaking', desc: 'Fair skill-based pairing' },
-              { icon: '🧠', label: 'AI Analysis', desc: 'Vocabulary coaching' },
-              { icon: '📹', label: 'Voice & Video', desc: 'WebRTC debates' }
-            ].map(f => (
-              <div key={f.label} style={{ padding: '12px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-                <div style={{ fontSize: 18, marginBottom: 4 }}>{f.icon}</div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{f.label}</div>
-                <div style={{ fontSize: 11, color: 'var(--muted)' }}>{f.desc}</div>
-              </div>
-            ))}
           </div>
         </div>
       </div>

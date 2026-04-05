@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const ICE_SERVERS = {
   iceServers: [
@@ -19,160 +19,135 @@ export function useWebRTC({
 }) {
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
+  const remoteStreamRef = useRef(null);
+  const pendingIceCandidatesRef = useRef([]);
+  const startedRef = useRef(false);
+  const [muted, setMuted] = useState(false);
+  const [videoEnabled, setVideoEnabled] = useState(true);
 
-  // 🎥 GET MEDIA
-  const getMedia = useCallback(async () => {
-    try {
-      const constraints =
-        mode === 'video'
-          ? { audio: true, video: true }
-          : { audio: true, video: false };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-      console.log("🎥 MEDIA STREAM STARTED");
-
-      localStreamRef.current = stream;
-
-      if (mode === 'video' && localVideoRef?.current) {
-        localVideoRef.current.srcObject = stream;
-      }
-
-      if (mode === 'voice' && localAudioRef?.current) {
-        localAudioRef.current.srcObject = stream;
-      }
-
-      return stream;
-    } catch (err) {
-      console.error('[WebRTC] Media error:', err);
-      alert("Allow camera & mic ❌");
-      throw err;
+  const attachLocalStream = useCallback((stream) => {
+    if (mode === 'video' && localVideoRef?.current) {
+      localVideoRef.current.srcObject = stream;
+      localVideoRef.current.play().catch(() => {});
     }
-  }, [mode, localVideoRef, localAudioRef]);
+    if (mode === 'voice' && localAudioRef?.current) {
+      localAudioRef.current.srcObject = stream;
+      localAudioRef.current.play().catch(() => {});
+    }
+  }, [localAudioRef, localVideoRef, mode]);
 
-  // 🔗 CREATE PEER CONNECTION
-  const createPeerConnection = useCallback(
-    (stream) => {
-      const pc = new RTCPeerConnection(ICE_SERVERS);
+  const attachRemoteStream = useCallback((stream) => {
+    if (mode === 'video' && remoteVideoRef?.current) {
+      remoteVideoRef.current.srcObject = stream;
+      remoteVideoRef.current.play().catch(() => {});
+    }
+    if (mode === 'voice' && remoteAudioRef?.current) {
+      remoteAudioRef.current.srcObject = stream;
+      remoteAudioRef.current.play().catch(() => {});
+    }
+  }, [mode, remoteAudioRef, remoteVideoRef]);
 
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+  const ensureLocalStream = useCallback(async () => {
+    if (localStreamRef.current) return localStreamRef.current;
+    const constraints = mode === 'video'
+      ? { audio: true, video: true }
+      : { audio: true, video: false };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    localStreamRef.current = stream;
+    attachLocalStream(stream);
+    return stream;
+  }, [attachLocalStream, mode]);
 
-      pc.onicecandidate = ({ candidate }) => {
-        if (candidate) {
-          socket.emit('webrtc:ice_candidate', { roomId, candidate });
-        }
-      };
+  const ensurePeerConnection = useCallback(async () => {
+    if (pcRef.current) return pcRef.current;
+    const stream = await ensureLocalStream();
+    const pc = new RTCPeerConnection(ICE_SERVERS);
 
-      // ✅ FIXED AUDIO + VIDEO PLAYBACK
-      pc.ontrack = (event) => {
-        const [remoteStream] = event.streams;
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) socket?.emit('webrtc:ice_candidate', { roomId, candidate });
+    };
+    pc.ontrack = (event) => {
+      const [eventStream] = event.streams;
+      const remoteStream = eventStream || remoteStreamRef.current || new MediaStream();
 
-        console.log("📡 RECEIVED REMOTE STREAM");
+      if (!eventStream && !remoteStream.getTracks().some((track) => track.id === event.track.id)) {
+        remoteStream.addTrack(event.track);
+      }
 
-        // 🎥 VIDEO MODE (includes audio)
-        if (mode === 'video' && remoteVideoRef?.current) {
-          const video = remoteVideoRef.current;
+      remoteStreamRef.current = remoteStream;
+      attachRemoteStream(remoteStream);
+    };
 
-          video.srcObject = remoteStream;
-          video.muted = false;
-          video.volume = 1;
+    pcRef.current = pc;
+    return pc;
+  }, [attachRemoteStream, ensureLocalStream, roomId, socket]);
 
-          video.play().catch(() => {
-            console.log("Video autoplay blocked");
-          });
-        }
+  const flushPendingIceCandidates = useCallback(async (pc) => {
+    if (!pc?.remoteDescription || !pendingIceCandidatesRef.current.length) return;
 
-        // 🎤 VOICE MODE
-        if (mode === 'voice' && remoteAudioRef?.current) {
-          const audio = remoteAudioRef.current;
+    const pendingCandidates = [...pendingIceCandidatesRef.current];
+    pendingIceCandidatesRef.current = [];
 
-          audio.srcObject = remoteStream;
-          audio.muted = false;
-          audio.volume = 1;
+    for (const candidate of pendingCandidates) {
+      try {
+        await pc.addIceCandidate(candidate);
+      } catch {}
+    }
+  }, []);
 
-          audio.play().catch(() => {
-            console.log("Audio autoplay blocked");
-          });
-        }
-      };
-
-      pc.onconnectionstatechange = () => {
-        console.log("🔗 Connection:", pc.connectionState);
-      };
-
-      pcRef.current = pc;
-      return pc;
-    },
-    [socket, roomId, mode, remoteVideoRef, remoteAudioRef]
-  );
-
-  // 🚀 START CALL
   const startCall = useCallback(async () => {
-    if (!socket) return;
-
-    console.log("🚀 START CALL");
-
-    const stream = await getMedia();
-    const pc = createPeerConnection(stream);
-
+    if (!socket || startedRef.current || (mode !== 'voice' && mode !== 'video')) return;
+    startedRef.current = true;
+    const pc = await ensurePeerConnection();
     if (isInitiator) {
-      console.log("📤 SENDING OFFER");
-
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-
       socket.emit('webrtc:offer', { roomId, offer });
     } else {
-      console.log("👂 READY FOR PEER");
-
       socket.emit('webrtc:ready', { roomId });
     }
-  }, [socket, roomId, isInitiator, getMedia, createPeerConnection]);
+  }, [ensurePeerConnection, isInitiator, mode, roomId, socket]);
 
-  // 📡 SOCKET EVENTS
   useEffect(() => {
-    if (!socket || (mode !== 'voice' && mode !== 'video')) return;
+    if (!socket || (mode !== 'voice' && mode !== 'video')) return undefined;
 
     const handlePeerReady = async () => {
-      console.log("👂 PEER READY");
-
-      if (isInitiator) return;
-
-      if (!pcRef.current) {
-        const stream = await getMedia();
-        createPeerConnection(stream);
-      }
+      if (!isInitiator) return;
+      const pc = await ensurePeerConnection();
+      if (pc.localDescription) return;
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('webrtc:offer', { roomId, offer });
     };
 
     const handleOffer = async ({ offer }) => {
-      console.log("📥 RECEIVED OFFER");
-
-      if (!pcRef.current) {
-        const stream = await getMedia();
-        createPeerConnection(stream);
-      }
-
-      await pcRef.current.setRemoteDescription(new RTCSessionDescription(offer));
-
-      const answer = await pcRef.current.createAnswer();
-      await pcRef.current.setLocalDescription(answer);
-
+      const pc = await ensurePeerConnection();
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      await flushPendingIceCandidates(pc);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
       socket.emit('webrtc:answer', { roomId, answer });
     };
 
     const handleAnswer = async ({ answer }) => {
-      console.log("📥 RECEIVED ANSWER");
-
       if (!pcRef.current) return;
-
       await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+      await flushPendingIceCandidates(pcRef.current);
     };
 
     const handleIce = async ({ candidate }) => {
-      if (!pcRef.current) return;
-
+      const rtcCandidate = new RTCIceCandidate(candidate);
+      if (!pcRef.current) {
+        pendingIceCandidatesRef.current.push(rtcCandidate);
+        return;
+      }
       try {
-        await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        if (pcRef.current.remoteDescription) {
+          await pcRef.current.addIceCandidate(rtcCandidate);
+        } else {
+          pendingIceCandidatesRef.current.push(rtcCandidate);
+        }
       } catch {}
     };
 
@@ -187,32 +162,55 @@ export function useWebRTC({
       socket.off('webrtc:answer', handleAnswer);
       socket.off('webrtc:ice_candidate', handleIce);
     };
-  }, [socket, roomId, mode, isInitiator, getMedia, createPeerConnection]);
+  }, [ensurePeerConnection, isInitiator, mode, roomId, socket]);
 
-  // 🧹 CLEANUP
+  useEffect(() => {
+    if (mode !== 'voice' && mode !== 'video') return;
+    if (localStreamRef.current) {
+      attachLocalStream(localStreamRef.current);
+    }
+    if (remoteStreamRef.current) {
+      attachRemoteStream(remoteStreamRef.current);
+    }
+  });
+
   const cleanup = useCallback(() => {
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
     }
-
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((t) => t.stop());
+      localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
     }
-  }, []);
+    remoteStreamRef.current = null;
+    pendingIceCandidatesRef.current = [];
+    if (localVideoRef?.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef?.current) remoteVideoRef.current.srcObject = null;
+    if (localAudioRef?.current) localAudioRef.current.srcObject = null;
+    if (remoteAudioRef?.current) remoteAudioRef.current.srcObject = null;
+    startedRef.current = false;
+  }, [localAudioRef, localVideoRef, remoteAudioRef, remoteVideoRef]);
 
-  // 🔇 MUTE
   const toggleMute = useCallback(() => {
-    if (!localStreamRef.current) return;
-    localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = !t.enabled));
-  }, []);
+    if (!localStreamRef.current) return muted;
+    const nextMuted = !muted;
+    localStreamRef.current.getAudioTracks().forEach(track => {
+      track.enabled = !nextMuted;
+    });
+    setMuted(nextMuted);
+    return nextMuted;
+  }, [muted]);
 
-  // 🎥 VIDEO TOGGLE
   const toggleVideo = useCallback(() => {
-    if (!localStreamRef.current) return;
-    localStreamRef.current.getVideoTracks().forEach((t) => (t.enabled = !t.enabled));
-  }, []);
+    if (!localStreamRef.current) return videoEnabled;
+    const nextEnabled = !videoEnabled;
+    localStreamRef.current.getVideoTracks().forEach(track => {
+      track.enabled = nextEnabled;
+    });
+    setVideoEnabled(nextEnabled);
+    return nextEnabled;
+  }, [videoEnabled]);
 
-  return { startCall, cleanup, toggleMute, toggleVideo };
+  return { startCall, cleanup, toggleMute, toggleVideo, muted, videoEnabled };
 }

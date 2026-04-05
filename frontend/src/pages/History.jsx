@@ -10,52 +10,68 @@ export default function History() {
 
   useEffect(() => {
     api.get('/debate/history')
-      .then(r => setSessions(r.data.sessions || []))
+      .then((response) => setSessions(response.data.sessions || []))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const modeIcon = m => ({ text: '💬', voice: '🎤', video: '📹' }[m] || '💬');
+  const modeIcon = (mode) => ({ text: 'Text', voice: 'Voice', video: 'Video' }[mode] || 'Text');
 
   return (
     <div className="page">
       <Navbar />
-      <div className="container" style={{ padding: '32px 24px', flex: 1 }}>
-        <div style={{ marginBottom: 24 }}>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 800, marginBottom: 4 }}>Debate History</h1>
-          <p style={{ color: 'var(--text2)', fontSize: 13 }}>Your last 20 debates</p>
+      <div className="container page-shell">
+        <div className="page-hero">
+          <div>
+            <div className="page-kicker">Past matches</div>
+            <h1 className="page-title">Debate History</h1>
+            <p className="page-subtitle">A cleaner view of your most recent debate rooms, reports, and outcomes.</p>
+          </div>
         </div>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 60 }}>
-            <div className="spin" style={{ width: 36, height: 36, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', margin: '0 auto' }} />
+          <div style={{ textAlign: 'center', padding: 70 }}>
+            <div className="spin" style={{ width: 38, height: 38, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', margin: '0 auto' }} />
           </div>
         ) : sessions.length === 0 ? (
-          <div className="card" style={{ textAlign: 'center', padding: 60 }}>
-            <div style={{ fontSize: 36, marginBottom: 12 }}>📖</div>
-            <div style={{ color: 'var(--text2)', marginBottom: 16 }}>No debate history yet.</div>
+          <div className="card empty-state">
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 34, marginBottom: 10 }}>History</div>
+            <div style={{ color: 'var(--text2)', marginBottom: 18 }}>No debate history yet.</div>
             <button className="btn btn-primary" onClick={() => navigate('/lobby')}>Start Your First Debate</button>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {sessions.map(s => (
-              <div key={s.roomId} onClick={() => navigate(`/report/${s.roomId}`)}
-                style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer', transition: 'border-color 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border2)'}
-                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+          <div className="list-stack">
+            {sessions.map((session) => (
+              <button
+                key={session.roomId}
+                type="button"
+                onClick={() => navigate(`/report/${session.roomId}`)}
+                className="list-row"
+                style={{ cursor: 'pointer', textAlign: 'left' }}
               >
-                <div style={{ fontSize: 24, width: 36, textAlign: 'center', flexShrink: 0 }}>{modeIcon(s.mode)}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{s.topic}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    {s.userAAliasInSession} vs {s.userBAliasInSession} · {new Date(s.endTime).toLocaleString()}
+                <div style={{ width: 72, flexShrink: 0 }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                    Mode
+                  </div>
+                  <div style={{ fontWeight: 700 }}>{modeIcon(session.mode)}</div>
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{session.topic}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    {session.userAAliasInSession} vs {session.userBAliasInSession} / {new Date(session.endTime).toLocaleString()}
                   </div>
                 </div>
-                <span className={`badge ${s.winner === 'draw' ? 'badge-amber' : 'badge-blue'}`}>
-                  {s.winner === 'draw' ? 'Draw' : `Winner: ${s.winner}`}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--text2)', minWidth: 80, textAlign: 'right' }}>View Report →</span>
-              </div>
+
+                <div className="button-row" style={{ justifyContent: 'flex-end' }}>
+                  {session.matchType === 'human-vs-ai' ? <span className="badge badge-amber">AI Practice</span> : null}
+                  {!session.isRated ? <span className="badge badge-amber">Unrated</span> : null}
+                  <span className={`badge ${session.winner === 'draw' ? 'badge-amber' : 'badge-blue'}`}>
+                    {session.winner === 'draw' ? 'Draw' : `Winner: ${session.winner}`}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--text2)' }}>View Report</span>
+                </div>
+              </button>
             ))}
           </div>
         )}

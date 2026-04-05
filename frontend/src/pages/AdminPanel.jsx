@@ -1,17 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
+import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 
-function TabBtn({ active, onClick, children }) {
+function TabButton({ active, onClick, children }) {
   return (
-    <button onClick={onClick} style={{
-      padding: '8px 18px', border: 'none', borderRadius: 6, cursor: 'pointer',
-      fontSize: 13, fontWeight: 500, transition: 'all 0.15s',
-      background: active ? 'var(--surface3)' : 'transparent',
-      color: active ? 'var(--text)' : 'var(--muted)',
-    }}>{children}</button>
+    <button type="button" onClick={onClick} className={`segmented-button ${active ? 'active' : ''}`}>
+      {children}
+    </button>
   );
 }
 
@@ -19,42 +16,56 @@ export default function AdminPanel() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState('flags');
-  const [flaggedSessions, setFlaggedSessions] = useState([]);
+  const [flags, setFlags] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [banUserId, setBanUserId] = useState('');
-  const [banReason, setBanReason] = useState('');
-  const [banMsg, setBanMsg] = useState('');
-  const [stats, setStats] = useState(null);
+  const [message, setMessage] = useState('');
 
   useEffect(() => {
-    if (user?.role !== 'admin') { navigate('/dashboard'); return; }
+    if (user?.role !== 'admin') {
+      navigate('/dashboard');
+      return;
+    }
     loadData();
   }, [user]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [flagsRes, lbRes] = await Promise.all([
+      const [flagsResponse, usersResponse] = await Promise.all([
         api.get('/leaderboard/admin/flags'),
-        api.get('/leaderboard'),
+        api.get('/leaderboard/admin/users')
       ]);
-      setFlaggedSessions(flagsRes.data.sessions || []);
-      setUsers(lbRes.data.leaderboard || []);
-    } catch (err) {
-      console.error(err);
-    } finally { setLoading(false); }
+      setFlags(flagsResponse.data.sessions || []);
+      setUsers(usersResponse.data.users || []);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleBan = async () => {
-    if (!banUserId || !banReason) { setBanMsg('Fill in user ID and reason'); return; }
+  const moderate = async (roomId, ticketId, action) => {
+    const note = window.prompt('Add an admin note for this action:', '') ?? '';
+    const durationDays = action === 'temporary_ban'
+      ? Number(window.prompt('Temporary ban duration in days:', '7') || '7')
+      : 0;
+
     try {
-      await api.post(`/leaderboard/admin/ban/${banUserId}`, { reason: banReason });
-      setBanMsg('User banned successfully.');
-      setBanUserId(''); setBanReason('');
+      await api.post(`/leaderboard/admin/moderate/${roomId}/${ticketId}`, { action, note, durationDays });
+      setMessage('Moderation action applied.');
       loadData();
     } catch (err) {
-      setBanMsg(err.response?.data?.message || 'Ban failed');
+      setMessage(err.response?.data?.message || 'Could not apply moderation action');
+    }
+  };
+
+  const permanentBan = async (userId) => {
+    const reason = window.prompt('Ban reason:', 'Violation of community guidelines') || 'Violation of community guidelines';
+    try {
+      await api.post(`/leaderboard/admin/ban/${userId}`, { reason });
+      setMessage('User permanently banned.');
+      loadData();
+    } catch (err) {
+      setMessage(err.response?.data?.message || 'Could not ban user');
     }
   };
 
@@ -65,124 +76,101 @@ export default function AdminPanel() {
       <Navbar />
       <div className="container" style={{ padding: '32px 24px', flex: 1 }}>
         <div style={{ marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+          <div className="button-row" style={{ alignItems: 'center', marginBottom: 6 }}>
             <span className="badge badge-amber">Admin</span>
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 800 }}>Moderation Panel</h1>
           </div>
-          <p style={{ color: 'var(--text2)', fontSize: 13 }}>Review flagged sessions, manage users, enforce community standards.</p>
+          <p style={{ color: 'var(--text2)', fontSize: 13 }}>Review flags, inspect users, and apply warnings or bans.</p>
         </div>
 
-        {/* Tab bar */}
-        <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 4, marginBottom: 24, width: 'fit-content' }}>
-          <TabBtn active={tab === 'flags'} onClick={() => setTab('flags')}>⚑ Flagged Sessions ({flaggedSessions.length})</TabBtn>
-          <TabBtn active={tab === 'users'} onClick={() => setTab('users')}>👥 Users ({users.length})</TabBtn>
-          <TabBtn active={tab === 'ban'} onClick={() => setTab('ban')}>🚫 Ban User</TabBtn>
+        <div className="segmented-control" style={{ marginBottom: 20 }}>
+          <TabButton active={tab === 'flags'} onClick={() => setTab('flags')}>Flagged Sessions</TabButton>
+          <TabButton active={tab === 'users'} onClick={() => setTab('users')}>Users</TabButton>
         </div>
+
+        {message ? (
+          <div style={{ marginBottom: 16, padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', fontSize: 13, color: 'var(--text2)' }}>
+            {message}
+          </div>
+        ) : null}
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60 }}>
             <div className="spin" style={{ width: 36, height: 36, border: '3px solid var(--border)', borderTopColor: 'var(--amber)', borderRadius: '50%', margin: '0 auto' }} />
           </div>
-        ) : (
-          <>
-            {/* Flagged Sessions tab */}
-            {tab === 'flags' && (
-              <div className="fade-in">
-                {flaggedSessions.length === 0 ? (
-                  <div className="card" style={{ textAlign: 'center', padding: 48 }}>
-                    <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
-                    <div style={{ color: 'var(--text2)' }}>No flagged sessions. Platform is clean.</div>
-                  </div>
-                ) : flaggedSessions.map(s => (
-                  <div key={s.roomId} className="card" style={{ marginBottom: 14 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                      <div>
-                        <div style={{ fontWeight: 600, marginBottom: 4 }}>Room: <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text2)' }}>{s.roomId}</span></div>
-                        <div style={{ fontSize: 13, color: 'var(--text2)' }}>
-                          {s.userA?.username || '?'} vs {s.userB?.username || '?'} · {new Date(s.createdAt).toLocaleString()}
-                        </div>
-                      </div>
-                      <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/report/${s.roomId}`)}>
-                        View Report →
-                      </button>
-                    </div>
-                    <div>
-                      {s.flags?.map((f, i) => (
-                        <div key={i} style={{ padding: '8px 12px', background: 'var(--red-dim)', border: '1px solid #e05c5c20', borderRadius: 6, marginBottom: 6, fontSize: 13 }}>
-                          <span style={{ color: 'var(--red)', fontWeight: 600 }}>{f.category}</span>
-                          <span style={{ color: 'var(--text2)', marginLeft: 8 }}>{f.reason}</span>
-                          <span style={{ float: 'right', fontSize: 11, color: 'var(--muted)' }}>
-                            {new Date(f.timestamp).toLocaleString()} · <span className={`badge ${f.status === 'pending' ? 'badge-amber' : 'badge-green'}`} style={{ fontSize: 10 }}>{f.status}</span>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                    {/* Show user IDs for banning convenience */}
-                    <div style={{ marginTop: 10, fontSize: 11, color: 'var(--muted)' }}>
-                      User A ID: {s.userA?._id} · User B ID: {s.userB?._id}
-                    </div>
-                  </div>
-                ))}
+        ) : tab === 'flags' ? (
+          <div className="fade-in">
+            {flags.length === 0 ? (
+              <div className="card" style={{ textAlign: 'center', padding: 48 }}>
+                <div style={{ color: 'var(--text2)' }}>No moderation tickets right now.</div>
               </div>
-            )}
-
-            {/* Users tab */}
-            {tab === 'users' && (
-              <div className="fade-in">
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 70px 70px 70px', padding: '10px 20px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    <div>User</div><div style={{ textAlign: 'right' }}>ELO</div><div style={{ textAlign: 'right' }}>Debates</div><div style={{ textAlign: 'right' }}>Wins</div><div style={{ textAlign: 'right' }}>Score</div>
+            ) : (
+              flags.map((session) => (
+                <div key={session.roomId} className="card" style={{ marginBottom: 16 }}>
+                  <div className="button-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>{session.topic} • {session.language}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text2)' }}>
+                        {session.userA?.username || '?'} vs {session.userB?.username || '?'} • {new Date(session.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/report/${session.roomId}`)}>View Report</button>
                   </div>
-                  {users.map(u => (
-                    <div key={u._id} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 70px 70px 70px', padding: '12px 20px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--surface3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>
-                          {u.username[0].toUpperCase()}
-                        </div>
+
+                  {session.flags?.map((flag) => (
+                    <div key={flag.ticketId} style={{ padding: '12px 0', borderTop: '1px solid var(--border)' }}>
+                      <div className="button-row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
                         <div>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{u.username}</div>
-                          <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{u._id}</div>
+                          <div style={{ fontWeight: 600 }}>{flag.category}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text2)' }}>{flag.reason}</div>
+                        </div>
+                        <div className={`badge ${flag.status === 'pending' ? 'badge-amber' : flag.status === 'dismissed' ? 'badge-red' : 'badge-green'}`}>
+                          {flag.status}
                         </div>
                       </div>
-                      <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--accent)' }}>{u.eloRating}</div>
-                      <div style={{ textAlign: 'right', fontSize: 13, color: 'var(--text2)' }}>{u.totalDebates}</div>
-                      <div style={{ textAlign: 'right', fontSize: 13, color: 'var(--green)' }}>{u.wins}</div>
-                      <div style={{ textAlign: 'right', fontSize: 13, color: 'var(--text2)' }}>{u.avgVocabScore || '—'}</div>
+                      <div className="button-row">
+                        <button className="btn btn-ghost btn-sm" onClick={() => moderate(session.roomId, flag.ticketId, 'dismiss')}>Dismiss</button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => moderate(session.roomId, flag.ticketId, 'warning')}>Warn</button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => moderate(session.roomId, flag.ticketId, 'temporary_ban')}>Temp Ban</button>
+                        <button className="btn btn-danger btn-sm" onClick={() => moderate(session.roomId, flag.ticketId, 'permanent_ban')}>Perm Ban</button>
+                      </div>
                     </div>
                   ))}
                 </div>
-              </div>
+              ))
             )}
+          </div>
+        ) : (
+          <div className="fade-in">
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 90px 90px 110px 110px 120px', padding: '10px 20px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <div>User</div>
+                <div style={{ textAlign: 'right' }}>Mode</div>
+                <div style={{ textAlign: 'right' }}>ELO</div>
+                <div style={{ textAlign: 'right' }}>Debates</div>
+                <div style={{ textAlign: 'right' }}>Status</div>
+                <div style={{ textAlign: 'right' }}>Action</div>
+              </div>
 
-            {/* Ban tab */}
-            {tab === 'ban' && (
-              <div className="fade-in" style={{ maxWidth: 480 }}>
-                <div className="card">
-                  <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 4, color: 'var(--red)' }}>Ban a User</h3>
-                  <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 20 }}>
-                    Copy the User ID from the Users tab. Banning immediately locks the account.
-                  </p>
-                  <div style={{ marginBottom: 14 }}>
-                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text2)', marginBottom: 6, fontWeight: 500 }}>User ID (MongoDB ObjectId)</label>
-                    <input className="input" value={banUserId} onChange={e => setBanUserId(e.target.value)} placeholder="64f3a2b1c9d4e5f6a7b8c9d0" />
+              {users.map((entry) => (
+                <div key={entry._id} style={{ display: 'grid', gridTemplateColumns: '1.4fr 90px 90px 110px 110px 120px', padding: '14px 20px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{entry.username}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{entry._id}</div>
                   </div>
-                  <div style={{ marginBottom: 20 }}>
-                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text2)', marginBottom: 6, fontWeight: 500 }}>Ban Reason</label>
-                    <input className="input" value={banReason} onChange={e => setBanReason(e.target.value)} placeholder="e.g. Hate speech, repeated harassment" />
+                  <div style={{ textAlign: 'right', color: 'var(--text2)' }}>{entry.mode}</div>
+                  <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{entry.eloRating}</div>
+                  <div style={{ textAlign: 'right', color: 'var(--text2)' }}>{entry.totalDebates}</div>
+                  <div style={{ textAlign: 'right', color: entry.isBanned ? 'var(--red)' : entry.suspensionEndsAt ? 'var(--amber)' : 'var(--green)' }}>
+                    {entry.isBanned ? 'Banned' : entry.suspensionEndsAt ? 'Suspended' : 'Active'}
                   </div>
-                  {banMsg && (
-                    <div style={{ marginBottom: 14, padding: '10px 14px', background: banMsg.includes('success') ? 'var(--green-dim)' : 'var(--red-dim)', border: `1px solid ${banMsg.includes('success') ? '#2ecc8740' : '#e05c5c40'}`, borderRadius: 6, fontSize: 13, color: banMsg.includes('success') ? 'var(--green)' : 'var(--red)' }}>
-                      {banMsg}
-                    </div>
-                  )}
-                  <button className="btn btn-danger" onClick={handleBan} style={{ width: '100%' }}>🚫 Ban User</button>
-                  <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 12, textAlign: 'center' }}>
-                    This action is immediate. The user will be notified on next login.
-                  </p>
+                  <div style={{ textAlign: 'right' }}>
+                    <button className="btn btn-danger btn-sm" onClick={() => permanentBan(entry._id)}>Ban</button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>
