@@ -29,18 +29,36 @@ if (!allowedOrigins.includes('http://localhost:5173')) {
 
 console.log('[CORS] Allowed origins:', allowedOrigins);
 
+// ... (keep your existing requires and allowedOrigins logic at the top)
+
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    console.warn('[CORS] Blocked origin:', origin);
-    callback(new Error(`CORS policy: origin ${origin} is not allowed`));
+    // 1. Allow requests with no origin (like mobile apps, curl, or internal tools)
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    // 2. Check if the incoming origin is in our allowed list
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    } else {
+      // 3. Log the mismatch to Railway "Deploy Logs" for debugging
+      // This will help you see if there is a subtle typo in your CLIENT_URL
+      console.error(`[CORS REJECTED] Origin: "${origin}" is not in:`, allowedOrigins);
+
+      // 4. FIX: Pass 'false' instead of 'new Error()' to prevent the 502 crash.
+      // This tells Express to block the request safely.
+      return callback(null, false);
+    }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  // 5. Ensure Pre-flight requests return 200 OK
   optionsSuccessStatus: 200,
 };
+
+// ... (keep the rest of your app.use and route logic)
 
 const io = new Server(server, {
   cors: {
