@@ -20,45 +20,12 @@ const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');
 
 const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
   .split(',')
-  .map((o) => o.trim())
+  .map((origin) => origin.trim())
   .filter(Boolean);
 
 if (!allowedOrigins.includes('http://localhost:5173')) {
   allowedOrigins.push('http://localhost:5173');
 }
-
-console.log('[CORS] Allowed origins:', allowedOrigins);
-
-// ... (keep your existing requires and allowedOrigins logic at the top)
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // 1. Allow requests with no origin (like mobile apps, curl, or internal tools)
-    if (!origin) {
-      return callback(null, true);
-    }
-
-    // 2. Check if the incoming origin is in our allowed list
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    } else {
-      // 3. Log the mismatch to Railway "Deploy Logs" for debugging
-      // This will help you see if there is a subtle typo in your CLIENT_URL
-      console.error(`[CORS REJECTED] Origin: "${origin}" is not in:`, allowedOrigins);
-
-      // 4. FIX: Pass 'false' instead of 'new Error()' to prevent the 502 crash.
-      // This tells Express to block the request safely.
-      return callback(null, false);
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  // 5. Ensure Pre-flight requests return 200 OK
-  optionsSuccessStatus: 200,
-};
-
-// ... (keep the rest of your app.use and route logic)
 
 const io = new Server(server, {
   cors: {
@@ -70,8 +37,10 @@ const io = new Server(server, {
   pingInterval: 10000,
 });
 
-app.options('*', cors(corsOptions));
-app.use(cors(corsOptions));
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -84,7 +53,7 @@ app.use('/api/debate', debateRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date(), allowedOrigins });
+  res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date() });
 });
 
 app.use('/api/*', (req, res) => {
@@ -111,8 +80,9 @@ mongoose.connect(process.env.MONGO_URI, {
     if (fs.existsSync(frontendDistPath)) {
       console.log(`[FRONTEND] Serving built app from ${frontendDistPath}`);
     } else {
-      console.log('[FRONTEND] No built frontend found — API-only mode');
+      console.log('[FRONTEND] No built frontend found. Build frontend for single-URL demo mode.');
     }
+
     const PORT = process.env.PORT || 5000;
     server.listen(PORT, () => {
       console.log(`[SERVER] Running on port ${PORT}`);
@@ -121,6 +91,7 @@ mongoose.connect(process.env.MONGO_URI, {
   })
   .catch((err) => {
     console.error('[DB] Connection failed:', err.message);
+    console.error('Make sure MONGO_URI is set correctly and MongoDB is reachable.');
     process.exit(1);
   });
 
